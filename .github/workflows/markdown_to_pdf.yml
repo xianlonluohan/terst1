@@ -1,4 +1,4 @@
-name: Markdown to PDF Converter
+name: "Markdown to PDF Converter"
 
 on:
   push:
@@ -18,12 +18,12 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout repository
+      - name: "Checkout repository"
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
       
-      - name: Install dependencies
+      - name: "Install dependencies"
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -40,20 +40,20 @@ jobs:
             tree \
             jq
       
-      - name: Create LaTeX templates
+      - name: "Create LaTeX templates"
         run: |
-          # 创建 minted 模板
-          cat > minted-template.tex << 'EOF'
+          # 创建优化的 minted 模板
+          cat > minted-optimized.tex << 'EOF'
           % 中文支持
           \usepackage{xeCJK}
-          \setCJKmainfont{Noto Serif CJK SC}
-          \setCJKsansfont{Noto Sans CJK SC}
-          \setCJKmonofont{Noto Sans Mono CJK SC}
-          
-          % 页面设置
-          \usepackage{geometry}
-          \geometry{a4paper, margin=1in}
-          
+          \usepackage[UTF8]{ctex}
+          \setCJKmainfont{Noto Serif CJK SC}[BoldFont=Noto Serif CJK SC Bold]
+          \setCJKsansfont{Noto Sans CJK SC}[BoldFont=Noto Sans CJK SC Bold]
+          \setCJKmonofont{Noto Sans Mono CJK SC}[BoldFont=Noto Sans Mono CJK SC Bold]
+
+          % 页面设置 - 增加边距防止溢出
+          \usepackage[paper=a4paper, margin=1.2in, left=1.3in, right=1.3in, top=1in, bottom=1.2in]{geometry}
+
           % 超链接
           \usepackage{hyperref}
           \hypersetup{
@@ -61,48 +61,106 @@ jobs:
             linkcolor=blue,
             urlcolor=blue,
             citecolor=blue,
+            pdfborder={0 0 0},
           }
-          
-          % 代码块设置 - 使用minted宏包（语法高亮更好）
+
+          % 代码块设置 - 使用minted宏包
           \usepackage{minted}
+          \usepackage{xcolor}
+          \usepackage{fancyvrb}
+
+          % 定义颜色
+          \definecolor{codebg}{rgb}{0.97,0.97,0.97}
+          \definecolor{framecolor}{rgb}{0.85,0.85,0.85}
+
+          % 代码块样式
           \setminted{
-            frame=single,
-            framesep=5pt,
-            breaklines=true,
-            breakanywhere=true,
-            breaksymbolleft={},
-            linenos=false,
-            fontsize=\small,
-            bgcolor=white,
-            autogobble=true,
+            frame=lines,          % 边框样式：lines=上下线框，single=全框
+            framesep=6pt,         % 边框与代码间距
+            framerule=1pt,        % 边框线宽
+            rulecolor=\color{framecolor},
+            bgcolor=codebg,       % 背景色
+            breaklines=true,      % 自动换行
+            breakbefore=\\,       % 在反斜杠前换行
+            breakafter=.,         % 在点号后换行
+            breakanywhere=true,   % 允许在任何位置换行
+            breaksymbolleft={},   % 换行符号（左侧）
+            breaksymbolright=,    % 换行符号（右侧）
+            linenos=false,        % 不显示行号
+            numbersep=8pt,        % 行号间距
+            fontsize=\footnotesize, % 字体大小
+            tabsize=2,            % Tab大小
+            autogobble=true,      % 自动去除缩进
+            xleftmargin=15pt,     % 左边距
+            xrightmargin=15pt,    % 右边距
+            baselinestretch=1.0,  % 行间距
+            mathescape=false,     % 禁用数学模式
+            escapeinside=||,      % 转义字符
+            showspaces=false,     % 不显示空格
+            showtabs=false,       % 不显示制表符
           }
-          
-          % 解决minted与xeCJK的兼容性问题
+
+          % 设置等宽字体
           \usepackage{fontspec}
-          \setmonofont{DejaVu Sans Mono}[Scale=0.9]
-          
-          % 段落设置
+          \setmonofont{DejaVu Sans Mono}[
+            Scale=0.85,
+            BoldFont=DejaVu Sans Mono Bold,
+            ItalicFont=DejaVu Sans Mono Oblique,
+            BoldItalicFont=DejaVu Sans Mono Bold Oblique
+          ]
+
+          % 解决长文本换行问题
+          \usepackage{seqsplit}
+          \usepackage{ragged2e}
+
+          % 段落和列表设置
           \usepackage{parskip}
-          \setlength{\parindent}{0em}
-          \setlength{\parskip}{0.5em}
-          
-          % 列表设置
+          \setlength{\parindent}{0pt}
+          \setlength{\parskip}{0.8em plus 0.1em minus 0.1em}
+
           \usepackage{enumitem}
-          \setlist{noitemsep, topsep=0pt}
+          \setlist{noitemsep, topsep=6pt, partopsep=0pt}
+
+          % 标题样式
+          \usepackage{titlesec}
+          \titleformat{\section}
+            {\Large\bfseries\sffamily}
+            {\thesection}
+            {1em}
+            {}
+          \titlespacing*{\section}{0pt}{1.5em}{1em}
+
+          \titleformat{\subsection}
+            {\large\bfseries\sffamily}
+            {\thesubsection}
+            {1em}
+            {}
+          \titlespacing*{\subsection}{0pt}{1em}{0.5em}
+
+          % 防止溢出
+          \sloppy
+          \emergencystretch=3em
+          \overfullrule=2pt  % 显示溢出警告
+
+          % 处理内联代码
+          \newcommand{\code}[1]{\texttt{\small #1}}
+
+          % 设置默认字体
+          \renewcommand{\familydefault}{\sfdefault}
           EOF
           
-          # 创建 listings 模板
-          cat > listings-template.tex << 'EOF'
+          # 创建 listings 模板（备选）
+          cat > listings-backup.tex << 'EOF'
           % 中文支持
           \usepackage{xeCJK}
+          \usepackage[UTF8]{ctex}
           \setCJKmainfont{Noto Serif CJK SC}
           \setCJKsansfont{Noto Sans CJK SC}
           \setCJKmonofont{Noto Sans Mono CJK SC}
-          
+
           % 页面设置
-          \usepackage{geometry}
-          \geometry{a4paper, margin=1in}
-          
+          \usepackage[paper=a4paper, margin=1.2in, left=1.3in, right=1.3in, top=1in, bottom=1.2in]{geometry}
+
           % 超链接
           \usepackage{hyperref}
           \hypersetup{
@@ -111,24 +169,29 @@ jobs:
             urlcolor=blue,
             citecolor=blue,
           }
-          
+
           % 代码块设置 - 使用listings宏包
           \usepackage{listings}
           \usepackage{xcolor}
-          
+
+          % 定义颜色
+          \definecolor{codebg}{rgb}{0.97,0.97,0.97}
+          \definecolor{framecolor}{rgb}{0.85,0.85,0.85}
+
           \lstset{
-            basicstyle=\ttfamily\small,
+            basicstyle=\ttfamily\footnotesize,
             breaklines=true,
             breakatwhitespace=false,
             breakautoindent=true,
-            postbreak=\mbox{\textcolor{red}{$\hookrightarrow$}\space},
+            postbreak=\raisebox{0ex}[0ex][0ex]{\ensuremath{\hookrightarrow\space}},
             showstringspaces=false,
             tabsize=2,
-            frame=single,
-            framerule=0.5pt,
-            rulecolor=\color{gray},
+            frame=lines,
+            framesep=6pt,
+            framerule=1pt,
+            rulecolor=\color{framecolor},
             numbers=none,
-            backgroundcolor=\color{white},
+            backgroundcolor=\color{codebg},
             keywordstyle=\color{blue}\bfseries,
             commentstyle=\color{green!50!black},
             stringstyle=\color{red},
@@ -137,19 +200,59 @@ jobs:
             inputencoding=utf8,
             upquote=true,
             showspaces=false,
+            xleftmargin=15pt,
+            xrightmargin=15pt,
           }
-          
-          % 段落设置
+
+          % 段落和列表设置
           \usepackage{parskip}
-          \setlength{\parindent}{0em}
-          \setlength{\parskip}{0.5em}
-          
-          % 列表设置
+          \setlength{\parindent}{0pt}
+          \setlength{\parskip}{0.8em plus 0.1em minus 0.1em}
+
           \usepackage{enumitem}
-          \setlist{noitemsep, topsep=0pt}
+          \setlist{noitemsep, topsep=6pt, partopsep=0pt}
+
+          % 防止溢出
+          \sloppy
+          \emergencystretch=3em
+          \overfullrule=2pt
           EOF
       
-      - name: Find Markdown files
+      - name: "Preprocess Markdown files"
+        run: |
+          echo "预处理Markdown文件..."
+          
+          # 查找所有md文件
+          MD_FILES=$(find . -name "*.md" -not -path "./.*" -not -path "*/node_modules/*" | sed 's/^\.\///')
+          
+          IFS=$'\n'
+          for md_file in $MD_FILES; do
+            [ -z "$md_file" ] && continue
+            
+            echo "预处理: $md_file"
+            
+            # 备份原文件
+            cp "$md_file" "$md_file.bak"
+            
+            # 移除网络图片
+            sed -i 's|!\[.*\](https://.*)||g' "$md_file"
+            sed -i 's|!\[.*\](http://.*)||g' "$md_file"
+            
+            # 处理特殊字符（这些字符在LaTeX中需要转义）
+            sed -i 's/\\\[/\\[/g' "$md_file"
+            sed -i 's/\\\\/\\textbackslash{}/g' "$md_file"
+            sed -i 's/\&/\\&/g' "$md_file"
+            sed -i 's/\$/\\\$/g' "$md_file"
+            sed -i 's/\</\\textless{}/g' "$md_file"
+            sed -i 's/\>/\\textgreater{}/g' "$md_file"
+            sed -i 's/\_/\\_/g' "$md_file"
+            sed -i 's/\^/\\^{}/g' "$md_file"
+            sed -i 's/\#/\\#/g' "$md_file"
+            sed -i 's/\%/\\%/g' "$md_file"
+            sed -i 's/\~/\\~{} /g' "$md_file"
+          done
+      
+      - name: "Find Markdown files"
         id: find-md
         run: |
           # 查找所有md文件，排除node_modules等目录
@@ -170,11 +273,11 @@ jobs:
             echo "EOF"
           } >> $GITHUB_OUTPUT
       
-      - name: Set up output directory
+      - name: "Set up output directory"
         run: |
           mkdir -p pdf_output
       
-      - name: Convert Markdown to PDF
+      - name: "Convert Markdown to PDF"
         run: |
           MD_FILES="${{ steps.find-md.outputs.found_md_files }}"
           
@@ -216,72 +319,94 @@ jobs:
               find "$dir_name/resource" -type f -exec cp {} "pdf_output/$dir_name/resource/" 2>/dev/null \; || true
             fi
             
-            # 预处理：备份文件并移除网络图片
-            cp "$md_file" "$md_file.bak"
-            sed -i 's|!\[.*\](https://.*)||g' "$md_file"
-            sed -i 's|!\[.*\](http://.*)||g' "$md_file"
+            # 方法1：使用优化的 minted 模板
+            echo "使用方法1：优化的minted模板..."
             
-            # 方法1：使用 minted 宏包
-            echo "使用方法1：minted宏包..."
             set +e
-            
             pandoc "$md_file" \
               --resource-path="$md_dir:.:." \
               -o "pdf_output/$dir_name/$base_name.pdf" \
               --pdf-engine=xelatex \
               --pdf-engine-opt="-shell-escape" \
-              -H minted-template.tex \
+              -H minted-optimized.tex \
               -V mainfont="Noto Serif CJK SC" \
-              -V geometry:margin=1in \
+              -V sansfont="Noto Sans CJK SC" \
+              -V monofont="DejaVu Sans Mono" \
+              -V geometry:margin=1.2in \
+              -V geometry:left=1.3in \
+              -V geometry:right=1.3in \
+              -V geometry:top=1in \
+              -V geometry:bottom=1.2in \
               -V colorlinks=true \
               -V linkcolor=blue \
               -V urlcolor=blue \
               -V lang=zh-CN \
-              --wrap=auto \
-              --highlight-style=pygments \
-              2>&1
+              --wrap=preserve \
+              --highlight-style=tango \
+              2>&1 | tee pandoc.log
+            
+            pandoc_exit=$?
+            set -e
+            
+            # 检查是否生成PDF
+            if [ -f "pdf_output/$dir_name/$base_name.pdf" ] && [ -s "pdf_output/$dir_name/$base_name.pdf" ]; then
+              file_size=$(du -h "pdf_output/$dir_name/$base_name.pdf" | cut -f1)
+              
+              # 检查PDF是否有效
+              if pdftotext "pdf_output/$dir_name/$base_name.pdf" /dev/null 2>&1; then
+                echo "  ✓ 成功: $base_name.pdf ($file_size)"
+                converted_count=$((converted_count + 1))
+                
+                # 恢复原文件
+                if [ -f "$md_file.bak" ]; then
+                  mv "$md_file.bak" "$md_file"
+                fi
+                
+                continue
+              fi
+            fi
+            
+            # 如果方法1失败，尝试方法2：使用 listings 模板
+            echo "  ⚠ 方法1失败，尝试方法2：listings模板..."
+            
+            set +e
+            pandoc "$md_file" \
+              --resource-path="$md_dir:.:." \
+              -o "pdf_output/$dir_name/$base_name.pdf" \
+              --pdf-engine=xelatex \
+              --listings \
+              -H listings-backup.tex \
+              -V mainfont="Noto Serif CJK SC" \
+              -V geometry:margin=1.2in \
+              -V geometry:left=1.3in \
+              -V geometry:right=1.3in \
+              -V geometry:top=1in \
+              -V geometry:bottom=1.2in \
+              -V colorlinks=true \
+              -V linkcolor=blue \
+              -V urlcolor=blue \
+              -V lang=zh-CN \
+              --wrap=preserve \
+              2>&1 | tee pandoc.log
             
             pandoc_exit=$?
             set -e
             
             # 恢复原文件
-            mv "$md_file.bak" "$md_file"
+            if [ -f "$md_file.bak" ]; then
+              mv "$md_file.bak" "$md_file"
+            fi
             
-            # 检查是否生成PDF
-            if [ -f "pdf_output/$dir_name/$base_name.pdf" ]; then
+            if [ -f "pdf_output/$dir_name/$base_name.pdf" ] && [ -s "pdf_output/$dir_name/$base_name.pdf" ]; then
               file_size=$(du -h "pdf_output/$dir_name/$base_name.pdf" | cut -f1)
               
-              # 检查PDF是否包含有效内容
-              if [ -s "pdf_output/$dir_name/$base_name.pdf" ]; then
-                echo "  ✓ 成功: $base_name.pdf ($file_size)"
+              if pdftotext "pdf_output/$dir_name/$base_name.pdf" /dev/null 2>&1; then
+                echo "  ✓ 方法2成功: $base_name.pdf ($file_size)"
                 converted_count=$((converted_count + 1))
               else
-                echo "  ⚠ 警告: PDF文件可能为空，尝试listings方法..."
-                
-                # 方法2：使用 listings 宏包
-                pandoc "$md_file" \
-                  --resource-path="$md_dir:.:." \
-                  -o "pdf_output/$dir_name/$base_name.pdf" \
-                  --pdf-engine=xelatex \
-                  --listings \
-                  -H listings-template.tex \
-                  -V mainfont="Noto Serif CJK SC" \
-                  -V geometry:margin=1in \
-                  -V colorlinks=true \
-                  -V linkcolor=blue \
-                  -V urlcolor=blue \
-                  -V lang=zh-CN \
-                  --wrap=auto \
-                  2>&1
-                
-                if [ -f "pdf_output/$dir_name/$base_name.pdf" ] && [ -s "pdf_output/$dir_name/$base_name.pdf" ]; then
-                  echo "  ✓ listings方法成功"
-                  converted_count=$((converted_count + 1))
-                else
-                  echo "  ✗ 失败: $md_file"
-                  failed_count=$((failed_count + 1))
-                  failed_files="$failed_files\n  - $md_file"
-                fi
+                echo "  ✗ 失败: $md_file"
+                failed_count=$((failed_count + 1))
+                failed_files="$failed_files\n  - $md_file"
               fi
             else
               echo "  ✗ 失败: $md_file"
@@ -310,9 +435,12 @@ jobs:
             exit 1
           fi
       
-      - name: Verify PDF files
+      - name: "Verify PDF files"
         run: |
           echo "验证PDF文件..."
+          
+          # 安装pdftotext用于验证PDF
+          sudo apt-get install -y poppler-utils
           
           total_pdfs=$(find pdf_output -name "*.pdf" -type f 2>/dev/null | wc -l)
           
@@ -323,13 +451,37 @@ jobs:
           
           echo "总计生成 $total_pdfs 个PDF文件"
           
-          echo "文件列表:"
+          # 验证每个PDF文件
+          valid_count=0
+          invalid_files=""
+          
           find pdf_output -name "*.pdf" -type f | sort | while read pdf_file; do
             size=$(du -h "$pdf_file" | cut -f1)
-            echo "  - $pdf_file ($size)"
+            
+            # 使用pdftotext验证PDF
+            if pdftotext "$pdf_file" /dev/null 2>&1; then
+              echo "  ✓ 有效: $pdf_file ($size)"
+              valid_count=$((valid_count + 1))
+            else
+              echo "  ✗ 无效: $pdf_file ($size)"
+              invalid_files="$invalid_files\n  - $pdf_file"
+            fi
           done
+          
+          echo ""
+          echo "有效PDF文件: $valid_count"
+          
+          if [ -n "$invalid_files" ]; then
+            echo "无效的PDF文件:"
+            echo -e "$invalid_files"
+          fi
+          
+          # 如果有无效的PDF文件，警告但不退出
+          if [ $valid_count -lt $total_pdfs ]; then
+            echo "警告: 部分PDF文件可能有问题"
+          fi
       
-      - name: Create release documentation
+      - name: "Create release documentation"
         run: |
           echo "创建发布文档..."
           
@@ -350,14 +502,15 @@ jobs:
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             echo "- **标签**: $TAG_NAME" >> pdf_output/README.md
           fi
-          echo "- **代码块**: 使用minted宏包，带边框，自动换行" >> pdf_output/README.md
+          echo "- **代码块样式**: 使用带边框的代码框，自动换行" >> pdf_output/README.md
+          echo "- **页面边距**: 优化边距防止内容溢出" >> pdf_output/README.md
           echo "" >> pdf_output/README.md
           
           echo "## 文件列表" >> pdf_output/README.md
           echo "" >> pdf_output/README.md
           
           # 统计文件数量
-          PDF_COUNT=$(find pdf_output -name "*.pdf" -type f | wc -l)
+          PDF_COUNT=$(find pdf_output -name "*.pdf" -type f 2>/dev/null | wc -l)
           
           # 按目录组织文件列表
           current_dir=""
@@ -392,9 +545,11 @@ jobs:
             echo "- **包含文件**: $PDF_COUNT 个 PDF 文档" >> pdf_output/RELEASE_NOTES.md
             echo "- **生成提交**: ${{ github.sha }}" >> pdf_output/RELEASE_NOTES.md
             echo "- **功能改进**: " >> pdf_output/RELEASE_NOTES.md
-            echo "  - 代码块使用minted宏包，带完整边框" >> pdf_output/RELEASE_NOTES.md
+            echo "  - 代码块使用带边框的样式" >> pdf_output/RELEASE_NOTES.md
+            echo "  - 优化页面边距，防止内容溢出" >> pdf_output/RELEASE_NOTES.md
             echo "  - 代码自动换行，语法高亮" >> pdf_output/RELEASE_NOTES.md
             echo "  - 修复特殊字符显示问题" >> pdf_output/RELEASE_NOTES.md
+            echo "  - 预处理Markdown文件，提高转换成功率" >> pdf_output/RELEASE_NOTES.md
             echo "" >> pdf_output/RELEASE_NOTES.md
             
             echo "## 文件清单" >> pdf_output/RELEASE_NOTES.md
@@ -409,7 +564,7 @@ jobs:
             done
           fi
       
-      - name: Create zip archive for release
+      - name: "Create zip archive for release"
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           echo "为 GitHub Releases 创建压缩包..."
@@ -425,7 +580,7 @@ jobs:
           echo "压缩包已创建: pdf-documents-$TAG_NAME.zip"
           ls -lh pdf-documents-*.zip
       
-      - name: Upload PDF artifacts
+      - name: "Upload PDF artifacts"
         uses: actions/upload-artifact@v4
         with:
           name: pdf-documents
@@ -434,7 +589,7 @@ jobs:
             pdf-documents-*.zip
           retention-days: 7
       
-      - name: Create GitHub Release
+      - name: "Create GitHub Release"
         if: startsWith(github.ref, 'refs/tags/')
         id: create_release
         uses: softprops/action-gh-release@v1
@@ -448,14 +603,15 @@ jobs:
           prerelease: false
           generate_release_notes: true
       
-      - name: Verify release creation
+      - name: "Verify release creation"
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           echo "Release 创建完成!"
           echo "访问: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
           echo ""
-          echo "主要功能:"
-          echo "1. 使用minted宏包处理代码块，带边框"
-          echo "2. 代码自动换行，语法高亮"
-          echo "3. 完整中文支持"
-          echo "4. 移除网络图片，避免下载失败"
+          echo "主要功能改进:"
+          echo "1. 使用优化的minted模板，代码块带边框"
+          echo "2. 增加页面边距，防止内容溢出"
+          echo "3. 代码自动换行，语法高亮"
+          echo "4. 完整的特殊字符处理"
+          echo "5. 预处理Markdown文件，提高转换成功率"
