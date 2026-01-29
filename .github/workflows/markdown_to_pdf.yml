@@ -38,12 +38,17 @@ jobs:
             fonts-wqy-zenhei \
             lmodern \
             tree \
-            jq
+            jq \
+            python3 \
+            python3-pip
+          
+          # 安装 Pygments (用于 minted 宏包，语法高亮更好)
+          pip3 install Pygments
       
       - name: Create LaTeX template for Chinese and code blocks
         run: |
-          # 创建新的 LaTeX 模板，解决代码块问题
-          cat > simple-template.tex << 'EOF'
+          # 创建正确的 LaTeX 模板，解决中文和代码块问题
+          cat > chinese-template.tex << 'EOF'
           % 中文支持配置
           \usepackage{xeCJK}
           \usepackage{fontspec}
@@ -58,25 +63,32 @@ jobs:
           \setsansfont{TeX Gyre Heros}
           \setmonofont{DejaVu Sans Mono}[Scale=0.9]
           
-          % 使用 fvextra 包处理代码块（比 listings 更好）
-          \usepackage{fvextra}
+          % 代码块设置 - 移除行号，启用换行
+          \usepackage{listings}
           \usepackage{xcolor}
           
-          % 定义代码样式
-          \DefineVerbatimEnvironment{Highlighting}{Verbatim}{
-            fontsize=\small,
-            breaklines=true,           % 启用自动换行
-            breakanywhere=true,        % 允许在任意位置换行
-            breaksymbolleft={},        % 换行符号
-            breaksymbolright={},
+          % 定义代码块样式 - 无行号
+          \lstset{
+            basicstyle=\ttfamily\small,
+            breaklines=true,                % 自动换行
+            breakatwhitespace=false,        % 在任意字符处换行
             breakautoindent=true,
-            framesep=2mm,              % 边框与代码的间距
-            frame=single,              % 单线边框
-            rulecolor=\color{gray!50}, % 边框颜色
-            fillcolor=\color{gray!5},  % 背景色（浅灰色）
-            numbers=none,              % 无行号
-            baselinestretch=0.9,
-            samepage=true
+            postbreak=\space\hookrightarrow\space,
+            showstringspaces=false,
+            tabsize=2,
+            frame=single,                   % 添加边框
+            framerule=0.5pt,
+            rulecolor=\color{gray},
+            numbers=none,                   % 移除行号
+            backgroundcolor=\color{gray!5},
+            keywordstyle=\color{blue}\bfseries,
+            commentstyle=\color{green!50!black},
+            stringstyle=\color{red},
+            identifierstyle=\color{black},
+            extendedchars=true,             % 支持扩展字符集
+            inputencoding=utf8,             % UTF-8 输入编码
+            upquote=true,                   % 正确处理引号
+            showspaces=false,               % 不显示空格
           }
           
           % 设置页边距
@@ -168,26 +180,27 @@ jobs:
               find "$dir_name/resource" -type f -exec cp {} "pdf_output/$dir_name/resource/" 2>/dev/null \; || true
             fi
             
-            # 方法1：使用 fvextra 处理代码块（更好的换行支持）
-            echo "使用 fvextra 方法转换..."
+            # 方法1：使用 listings 宏包（中文支持更好）
+            echo "使用方法1：带中文支持的 listings 宏包..."
             set +e
             
+            # 使用包含中文配置的模板
             pandoc "$md_file" \
               --resource-path="$md_dir:.:." \
               -o "pdf_output/$dir_name/$base_name.pdf" \
               --pdf-engine=xelatex \
-              --highlight-style=pygments \
-              -H simple-template.tex \
+              --listings \
+              -H chinese-template.tex \
               -V mainfont="Noto Serif CJK SC" \
               -V sansfont="Noto Sans CJK SC" \
-              -V monofont="DejaVu Sans Mono" \
-              -V geometry="margin=1in" \
+              -V monofont="Noto Sans Mono CJK SC" \
+              -V geometry:margin=1in \
               -V colorlinks=true \
               -V linkcolor=blue \
               -V urlcolor=blue \
               -V lang=zh-CN \
               --wrap=auto \
-              2>&1 | tee /tmp/pandoc.log
+              2>&1
             
             pandoc_exit=$?
             set -e
@@ -197,35 +210,36 @@ jobs:
               file_size=$(du -h "pdf_output/$dir_name/$base_name.pdf" | cut -f1)
               
               # 检查PDF是否包含有效内容
-              if pdfinfo "pdf_output/$dir_name/$base_name.pdf" 2>/dev/null > /dev/null; then
+              pdf_info=$(pdfinfo "pdf_output/$dir_name/$base_name.pdf" 2>/dev/null || echo "")
+              if [ -n "$pdf_info" ]; then
                 echo "  ✓ 成功: $base_name.pdf ($file_size)"
                 converted_count=$((converted_count + 1))
-                
-                # 创建测试代码块的简单文档以验证效果
-                if [ "$md_file" = "test.md" ] || [ "$base_name" = "test" ]; then
-                  echo "    生成代码块测试截图..."
-                fi
               else
-                echo "  ⚠ 警告: PDF文件可能有问题，尝试备选方案..."
-                
-                # 方法2：使用简单模板（无代码高亮）
+                echo "  ⚠ 警告: PDF文件可能有问题，尝试使用 minted..."
+                # 方法2：使用 minted 宏包（语法高亮更好，但需要编译两次）
                 pandoc "$md_file" \
                   --resource-path="$md_dir:.:." \
-                  -o "pdf_output/$dir_name/$base_name-simple.pdf" \
+                  -o "pdf_output/$dir_name/$base_name.pdf" \
                   --pdf-engine=xelatex \
+                  --pdf-engine-opt=-shell-escape \
                   -V mainfont="Noto Serif CJK SC" \
-                  -V geometry="margin=1in" \
+                  -V sansfont="Noto Sans CJK SC" \
+                  -V monofont="Noto Sans Mono CJK SC" \
+                  -V geometry:margin=1in \
                   -V colorlinks=true \
                   -V linkcolor=blue \
                   -V urlcolor=blue \
                   -V lang=zh-CN \
                   --wrap=auto \
-                  --no-highlight
+                  --highlight-style=zenburn \
+                  -V header-includes='\usepackage{minted}' \
+                  -V header-includes='\setminted{breaklines=true,breakanywhere=true,breaksymbolleft=,linenos=false}' \
+                  -V header-includes='\usepackage{xeCJK}' \
+                  -V header-includes='\setCJKmainfont{Noto Serif CJK SC}' \
+                  2>&1
                 
-                if [ -f "pdf_output/$dir_name/$base_name-simple.pdf" ]; then
-                  echo "  ✓ 备选方案成功（无代码高亮）"
-                  # 重命名文件
-                  mv "pdf_output/$dir_name/$base_name-simple.pdf" "pdf_output/$dir_name/$base_name.pdf"
+                if [ -f "pdf_output/$dir_name/$base_name.pdf" ]; then
+                  echo "  ✓ minted 方法成功"
                   converted_count=$((converted_count + 1))
                 else
                   echo "  ✗ 失败: $md_file"
@@ -251,14 +265,27 @@ jobs:
             exit 1
           fi
       
-      - name: Create simple test to verify code blocks
+      - name: Create comprehensive test document
         run: |
-          echo "创建简单测试文件验证代码块..."
+          echo "创建综合测试文档..."
           
-          cat > pdf_output/code-test.md << 'EOF'
-          # 代码块测试
+          # 创建一个全面的测试PDF来验证所有功能
+          cat > comprehensive-test.md << 'EOF'
+          # 综合测试文档
           
-          ## C++ 长代码行测试
+          本文档用于测试PDF转换的所有功能，包括中文支持、代码块、列表、表格等。
+          
+          ## 中文段落测试
+          
+          这是一个包含中文的段落。测试中文字符是否正常显示：你好，世界！这是一段中文文本，用于测试PDF转换过程中的中文支持。
+          
+          第二段中文测试：这是一个较长的中文段落，用于测试段落格式、换行和字体渲染。我们希望所有的中文字符都能正确显示，并且没有乱码问题。这里包含一些特殊字符：，。！？；：""
+          
+          ## 代码块测试
+          
+          所有代码块都应该自动换行，并且没有行号。
+          
+          ### C++ 代码（长行测试）
           
           ```cpp
           #include <iostream>
@@ -266,76 +293,207 @@ jobs:
           #include <string>
           #include <algorithm>
           
-          // 这是一个非常长的注释行，用于测试代码块的自动换行功能：This_is_a_very_long_comment_line_to_test_code_block_line_wrapping_functionality
-          void processData(const std::vector<std::string>& items, bool verbose = false, int maxRetries = 3, const std::string& logFile = "output.log", bool enableDebug = true) {
-              if (verbose) {
-                  std::cout << "Processing " << items.size() << " items with max retries " << maxRetries << std::endl;
+          // 这是一个非常长的注释，用来测试换行功能 This is a very long comment to test line breaking functionality in code blocks
+          class MyClass {
+          public:
+              MyClass(const std::string& name, int value) : m_name(name), m_value(value) {}
+              
+              // 长函数声明测试
+              void processData(const std::vector<std::pair<int, std::string>>& dataList, bool shouldSort = true, bool verbose = false) {
+                  if (verbose) {
+                      std::cout << "Processing " << dataList.size() << " items" << std::endl;
+                  }
+                  
+                  if (shouldSort) {
+                      std::sort(dataList.begin(), dataList.end(), 
+                               [](const auto& a, const auto& b) { return a.first < b.first; });
+                  }
+                  
+                  for (const auto& item : dataList) {
+                      // 处理每个项目
+                      std::cout << "Item: " << item.first << ", " << item.second << std::endl;
+                  }
               }
               
-              for (const auto& item : items) {
-                  std::cout << "Item: " << item << std::endl;
-              }
-          }
+          private:
+              std::string m_name;
+              int m_value;
+              std::vector<int> m_data;
+          };
           
           int main() {
-              std::vector<std::string> data = {"item1", "item2", "item3", "item4", "item5"};
-              processData(data, true, 5, "mylog.log", true);
+              std::vector<std::pair<int, std::string>> items = {
+                  {1, "Apple"},
+                  {3, "Banana"},
+                  {2, "Cherry"},
+                  {5, "Date"},
+                  {4, "Elderberry"}
+              };
+              
+              MyClass obj("TestObject", 42);
+              obj.processData(items, true, true);
+              
               return 0;
           }
           ```
           
-          ## Python 代码测试
+          ### Python 代码（中文注释测试）
           
           ```python
-          def calculate_statistics(data_list, window_size=10, threshold=0.5, normalize=True, verbose=False):
+          # 这是一个中文注释：Python代码示例
+          def calculate_average(numbers):
               """
-              这是一个非常长的函数文档字符串，用于测试代码块的自动换行功能
-              参数:
-                data_list: 数据列表
-                window_size: 窗口大小
-                threshold: 阈值
-                normalize: 是否归一化
-                verbose: 是否显示详细信息
+              计算数字列表的平均值
+              参数：
+                numbers: 数字列表
+              返回：
+                平均值
               """
-              if verbose:
-                  print(f"Processing {len(data_list)} data points with window size {window_size} and threshold {threshold}")
+              if not numbers:
+                  return 0  # 中文注释：空列表返回0
               
-              # 这是一个非常长的注释行，用于测试代码块的自动换行功能：This_is_a_very_long_comment_line_to_test_code_block_line_wrapping_functionality_in_python_code
-              result = sum(data_list) / len(data_list) if data_list else 0
-              
-              return {"average": result, "count": len(data_list), "window_size": window_size, "threshold": threshold}
+              total = sum(numbers)
+              average = total / len(numbers)
+              return average
           
-          # 调用函数
-          stats = calculate_statistics([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], window_size=5, threshold=0.3, normalize=True, verbose=True)
-          print(stats)
+          # 长代码行测试：这是一个非常非常长的Python函数调用，用于测试自动换行
+          result = calculate_average([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20])
+          
+          print(f"平均值: {result}")  # 中文注释：打印结果
           ```
           
-          ## 简单段落测试
+          ### JavaScript 代码
           
-          这是一个中文段落，用于测试中文字符显示是否正常。
+          ```javascript
+          // JavaScript 代码示例
+          const calculateTotal = (items, taxRate = 0.08, discount = 0) => {
+              // 中文注释：计算总价
+              const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+              const tax = subtotal * taxRate;
+              const discountAmount = subtotal * discount;
+              const total = subtotal + tax - discountAmount;
+              
+              return {
+                  subtotal: subtotal,
+                  tax: tax,
+                  discount: discountAmount,
+                  total: total
+              };
+          };
+          
+          // 长函数调用测试
+          const result = calculateTotal(
+              [{ name: "Item 1", price: 10.99, quantity: 2 },
+               { name: "Item 2", price: 5.49, quantity: 3 },
+               { name: "Item 3", price: 15.99, quantity: 1 }],
+              0.08,  // taxRate
+              0.1    // discount
+          );
+          
+          console.log("总计:", result.total);
+          ```
+          
+          ### Bash 命令
+          
+          ```bash
+          # 这是一个非常长的命令，用于测试换行
+          find /path/to/directory -name "*.log" -type f -size +100M -exec gzip {} \; -exec mv {}.gz /backup/logs/ \;
+          
+          # 另一个长命令
+          docker run -it --rm --name myapp -p 8080:8080 -v $(pwd):/app -e ENVIRONMENT=production -e LOG_LEVEL=DEBUG myapp:latest
+          ```
+          
+          ## 列表测试
+          
+          ### 无序列表
+          
+          - 项目一：中文测试
+          - 项目二：代码块测试
+          - 项目三：格式测试
+          - 项目四：这是一个非常长的列表项，用于测试列表项的自动换行功能是否正常工作
+          
+          ### 有序列表
+          
+          1. 第一步：准备工作
+          2. 第二步：执行转换
+          3. 第三步：验证结果
+          4. 第四步：这是一个非常长的有序列表项，用于测试有序列表的自动换行功能是否正常工作
+          
+          ## 表格测试
+          
+          | 姓名 | 年龄 | 职业 | 说明 |
+          |------|------|------|------|
+          | 张三 | 28 | 工程师 | 这是一个非常长的说明，用于测试表格单元格的自动换行功能 |
+          | 李四 | 32 | 设计师 | 设计师负责UI/UX设计 |
+          | 王五 | 45 | 经理 | 项目管理 |
+          
+          ## 链接测试
+          
+          - [GitHub](https://github.com)
+          - [Markdown指南](https://www.markdownguide.org)
+          - [Pandoc用户手册](https://pandoc.org/MANUAL.html)
+          
+          ## 图片引用测试
+          
+          ![示例图片](https://via.placeholder.com/150x100/3498db/ffffff?text=Test+Image)
+          
+          ## 引用块测试
+          
+          > 这是一个引用块，用于测试引用格式。
+          > 这是引用块的第二行，同样用于测试。
+          
+          ## 水平线测试
+          
+          ---
+          
+          ## 格式测试
+          
+          **粗体文本**、*斜体文本*、`内联代码`、~~删除线~~
+          
+          ## 特殊字符测试
+          
+          测试特殊字符：© ® ™ ° ± ≠ ≤ ≥ ≈ ∞ ∑ π √
+          
+          ## 中文字符范围测试
+          
+          测试各种中文字符：简体字、繁體字、カタカナ、ひらがな、한글
+          
+          ## 长段落测试
+          
+          这是一个非常长的段落，用于测试段落的自动换行功能。这个段落包含很多句子，每句话都有不同的内容。我们希望这些句子能够正确地在适当的位置换行，而不是超出页面边界。这是一个非常长的段落，用于测试段落的自动换行功能。这个段落包含很多句子，每句话都有不同的内容。我们希望这些句子能够正确地在适当的位置换行，而不是超出页面边界。这是一个非常长的段落，用于测试段落的自动换行功能。这个段落包含很多句子，每句话都有不同的内容。我们希望这些句子能够正确地在适当的位置换行，而不是超出页面边界。
+          
+          这是另一个段落，用于测试段落之间的间距。我们希望这个段落与上一个段落之间有适当的间距。
+          
+          ## 结束语
+          
+          如果这个测试文档的所有元素都正确显示，那么PDF转换工作正常！
           EOF
           
-          # 转换测试文件
-          pandoc pdf_output/code-test.md \
-            -o pdf_output/code-test.pdf \
+          # 转换测试文档
+          echo "生成综合测试文档..."
+          pandoc comprehensive-test.md \
+            -o pdf_output/comprehensive-test.pdf \
             --pdf-engine=xelatex \
-            --highlight-style=pygments \
-            -H simple-template.tex \
+            --listings \
+            -H chinese-template.tex \
             -V mainfont="Noto Serif CJK SC" \
             -V sansfont="Noto Sans CJK SC" \
-            -V monofont="DejaVu Sans Mono" \
-            -V geometry="margin=1in" \
+            -V monofont="Noto Sans Mono CJK SC" \
+            -V geometry:margin=1in \
             -V colorlinks=true \
             -V linkcolor=blue \
             -V urlcolor=blue \
             -V lang=zh-CN \
-            --wrap=auto
+            --wrap=auto \
+            --toc \
+            -V toc-title="目录"
           
-          if [ -f "pdf_output/code-test.pdf" ]; then
-            echo "✓ 代码块测试文件生成成功"
-            echo "测试文件: pdf_output/code-test.pdf"
+          if [ -f "pdf_output/comprehensive-test.pdf" ]; then
+            echo "✓ 综合测试文档生成成功"
+            echo "测试文档位置: pdf_output/comprehensive-test.pdf"
+            echo "请检查此文件中的所有功能是否正常"
           else
-            echo "✗ 代码块测试文件生成失败"
+            echo "✗ 综合测试文档生成失败"
           fi
       
       - name: Create release documentation
@@ -361,8 +519,8 @@ jobs:
             echo "- **标签**: $TAG_NAME" >> pdf_output/README.md
           fi
           echo "- **中文支持**: 已启用完整中文支持" >> pdf_output/README.md
-          echo "- **代码块**: 自动换行，浅灰色背景，无行号" >> pdf_output/README.md
-          echo "- **测试文件**: 包含 code-test.pdf 验证代码块功能" >> pdf_output/README.md
+          echo "- **代码块**: 自动换行，无行号" >> pdf_output/README.md
+          echo "- **测试文档**: 包含 comprehensive-test.pdf 验证所有功能" >> pdf_output/README.md
           echo "" >> pdf_output/README.md
           
           echo "## 文件列表" >> pdf_output/README.md
@@ -404,9 +562,10 @@ jobs:
             echo "- **包含文件**: $PDF_COUNT 个 PDF 文档" >> pdf_output/RELEASE_NOTES.md
             echo "- **生成提交**: ${{ github.sha }}" >> pdf_output/RELEASE_NOTES.md
             echo "- **功能改进**: " >> pdf_output/RELEASE_NOTES.md
-            echo "  - 完整中文支持" >> pdf_output/RELEASE_NOTES.md
-            echo "  - 代码块自动换行（使用 fvextra 包）" >> pdf_output/RELEASE_NOTES.md
-            echo "  - 代码块浅灰色背景，无行号" >> pdf_output/RELEASE_NOTES.md
+            echo "  - 完整中文支持（已修复乱码问题）" >> pdf_output/RELEASE_NOTES.md
+            echo "  - 代码块自动换行，无行号" >> pdf_output/RELEASE_NOTES.md
+            echo "  - 优化段落格式和列表样式" >> pdf_output/RELEASE_NOTES.md
+            echo "  - 包含综合测试文档验证所有功能" >> pdf_output/RELEASE_NOTES.md
             echo "" >> pdf_output/RELEASE_NOTES.md
             
             echo "## 文件清单" >> pdf_output/RELEASE_NOTES.md
@@ -467,8 +626,8 @@ jobs:
           echo "访问: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
           echo ""
           echo "主要改进:"
-          echo "1. 完整中文支持"
-          echo "2. 代码块自动换行（使用 fvextra）"
-          echo "3. 代码块浅灰色背景，无行号"
+          echo "1. 完整中文支持（已修复乱码问题）"
+          echo "2. 代码块自动换行，无行号"
+          echo "3. 包含综合测试文档验证功能"
           echo ""
-          echo "测试代码块功能: pdf_output/code-test.pdf"
+          echo "测试文档位置: pdf_output/comprehensive-test.pdf"
