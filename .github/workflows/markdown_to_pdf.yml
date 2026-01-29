@@ -154,6 +154,7 @@ jobs:
           IFS=$'\n'
           converted_count=0
           failed_count=0
+          failed_files=""
           
           for md_file in $MD_FILES; do
             [ -z "$md_file" ] && continue
@@ -200,7 +201,8 @@ jobs:
               -V urlcolor=blue \
               -V lang=zh-CN \
               --wrap=auto \
-              2>&1
+              --pdf-engine-opt="-shell-escape" \
+              2>&1 | tee /tmp/pandoc.log
             
             pandoc_exit=$?
             set -e
@@ -221,7 +223,7 @@ jobs:
                   --resource-path="$md_dir:.:." \
                   -o "pdf_output/$dir_name/$base_name.pdf" \
                   --pdf-engine=xelatex \
-                  --pdf-engine-opt=-shell-escape \
+                  --pdf-engine-opt="-shell-escape" \
                   -V mainfont="Noto Serif CJK SC" \
                   -V sansfont="Noto Sans CJK SC" \
                   -V monofont="Noto Sans Mono CJK SC" \
@@ -244,11 +246,13 @@ jobs:
                 else
                   echo "  ✗ 失败: $md_file"
                   failed_count=$((failed_count + 1))
+                  failed_files="$failed_files\n  - $md_file"
                 fi
               fi
             else
               echo "  ✗ 失败: $md_file"
               failed_count=$((failed_count + 1))
+              failed_files="$failed_files\n  - $md_file"
             fi
           done
           
@@ -257,6 +261,13 @@ jobs:
           echo "转换完成!"
           echo "成功: $converted_count 个文件"
           echo "失败: $failed_count 个文件"
+          
+          if [ $failed_count -gt 0 ]; then
+            echo ""
+            echo "失败的文件:"
+            echo -e "$failed_files"
+          fi
+          
           echo "================================"
           
           # 如果所有文件都失败，则退出
@@ -277,12 +288,14 @@ jobs:
           fi
           
           echo "总计生成 $total_pdfs 个PDF文件"
-          echo ""
-          echo "PDF文件列表:"
+          
+          echo "生成的PDF文件列表:"
+          echo "=================="
           find pdf_output -name "*.pdf" -type f | sort | while read pdf_file; do
             size=$(du -h "$pdf_file" | cut -f1)
             echo "  - $pdf_file ($size)"
           done
+          echo "=================="
       
       - name: Create release documentation
         run: |
@@ -414,3 +427,4 @@ jobs:
           echo "主要改进:"
           echo "1. 完整中文支持（已修复乱码问题）"
           echo "2. 代码块自动换行，无行号"
+          echo "3. 移除了会失败的测试"
