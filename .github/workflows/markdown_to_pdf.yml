@@ -21,7 +21,7 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Install dependencies
+      - name: Install dependencies (修复格式错误)
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -34,11 +34,12 @@ jobs:
             fonts-noto-cjk \
             fonts-wqy-microhei \
             fonts-wqy-zenhei \
-            fonts-dejavu \  # 新增：安装DejaVu等宽字体（Linux兼容）
+            fonts-dejavu \
             lmodern \
             tree \
             jq
-      
+        # 关键修复：移除依赖列表中的多余空格和隐藏字符，确保每个包名正确
+        
       - name: Find Markdown files
         id: find-md
         run: |
@@ -64,7 +65,7 @@ jobs:
         run: |
           mkdir -p pdf_output
       
-      - name: Convert Markdown to PDF
+      - name: Convert Markdown to PDF (强化代码块样式)
         run: |
           MD_FILES="${{ steps.find-md.outputs.found_md_files }}"
           
@@ -100,36 +101,41 @@ jobs:
               find "$dir_name/resource" -type f -exec cp {} "pdf_output/$dir_name/resource/" 2>/dev/null \; || true
             fi
             
-            # 核心：Pandoc转换命令（强制启用listings，修复样式）
+            # 核心：Pandoc转换命令（修复格式+强化样式）
             set +e
             pandoc "$md_file" \
-              -f markdown+listings \  # 强制启用listings包解析代码块（关键修复）
+              -f markdown+listings \  # 强制启用listings包（代码块样式核心）
               --resource-path="$md_dir:.:." \
               -o "pdf_output/$dir_name/$base_name.pdf" \
               --pdf-engine=xelatex \
-              # 主字体（支持中文，保持原有）
+              # 主字体（支持中文，兼容Linux）
               -V mainfont="Noto Serif CJK SC" \
-              # 代码块等宽字体（Linux兼容，替换Consolas）
+              # 代码块等宽字体（Linux预装，无缺失风险）
               -V monofont="DejaVu Sans Mono" \
-              # 代码字体大小（进一步缩小，适配代码密集场景）
+              # 字体大小（9pt适配密集代码）
               -V fontsize=9pt \
-              # 页面边距（缩小左右边距至0.7in，增加横向空间）
-              -V geometry:margin=0.7in \
-              -V geometry:a4paper \  # 指定A4纸（统一尺寸）
-              # 代码块样式（核心配置，与VS Code一致）
-              -V listings-options=breaklines \  # 强制换行（解决溢出）
-              -V listings-options=frame=single \  # 单边框（代码框）
-              -V listings-options=backgroundcolor=\color{gray!15} \  # 浅灰色背景
-              -V listings-options=tabsize=4 \  # 缩进4空格
-              -V listings-options=numbers=none \  # 不显示行号（与VS Code默认一致）
-              -V listings-options=showstringspaces=false \  # 不显示字符串中的空格标记
-              # 代码高亮样式（vs风格，更贴近VS Code）
+              # 页面配置（A4纸+窄边距，最大化横向空间）
+              -V geometry:a4paper \
+              -V geometry:margin=0.6in \
+              -V geometry:left=0.7in \
+              -V geometry:right=0.7in \
+              # 代码块样式（与VS Code 1111.pdf完全对齐）
+              -V listings-options=breaklines:true \  # 强制换行（解决溢出）
+              -V listings-options=frame:single \     # 单边框（代码框）
+              -V listings-options=backgroundcolor:\color{gray!15} \  # 浅灰背景
+              -V listings-options=tabsize:4 \        # 4空格缩进
+              -V listings-options=numbers:none \     # 隐藏行号
+              -V listings-options=showstringspaces:false \  # 不显示空格标记
+              -V listings-options=basicstyle:\ttfamily\small \  # 等宽小字体
+              # 代码高亮（VS风格，与1111.pdf一致）
               --highlight-style=vs \
+              # 中文支持优化
+              -V lang=zh-CN \
+              -V CJKmainfont="Noto Serif CJK SC" \
               # 链接样式
               -V colorlinks=true \
               -V linkcolor=blue \
-              -V urlcolor=blue \
-              -V lang=zh-CN 2>&1
+              -V urlcolor=blue 2>&1
             pandoc_exit=$?
             set -e
             
