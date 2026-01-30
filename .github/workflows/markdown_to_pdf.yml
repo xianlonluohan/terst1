@@ -20,17 +20,29 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Install dependencies (修复包名和格式)
+      - name: Install dependencies (确保字体和LaTeX包完整)
         run: |
           sudo apt-get update
-          sudo apt-get install -y pandoc texlive-xetex texlive-latex-extra texlive-fonts-recommended texlive-latex-recommended texlive-lang-chinese fonts-noto-cjk fonts-wqy-microhei fonts-wqy-zenhei fonts-dejavu lmodern tree jq
+          sudo apt-get install -y \
+            pandoc \
+            texlive-xetex \
+            texlive-latex-extra \
+            texlive-fonts-recommended \
+            texlive-latex-recommended \
+            texlive-lang-chinese \
+            fonts-noto-cjk \
+            fonts-wqy-microhei \
+            fonts-wqy-zenhei \
+            fonts-dejavu \
+            lmodern \
+            texlive-fonts-extra \  # 新增：确保等宽字体和颜色包完整
+            tree \
+            jq
       
       - name: Find Markdown files (处理中文路径)
         id: find-md
         run: |
-          # 查找所有md文件，处理中文路径，排除系统目录
           MD_FILES=$(find . -name "*.md" -not -path "./.*" -not -path "*/node_modules/*" | sed 's/^\.\///' | sort)
-          # 输出到环境变量（保留换行）
           echo "found_md_files<<EOF" >> $GITHUB_OUTPUT
           echo "$MD_FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -38,7 +50,35 @@ jobs:
       - name: Set up output directory
         run: mkdir -p pdf_output
       
-      - name: Convert Markdown to PDF (核心修复，确保代码块样式)
+      - name: Create custom LaTeX style (强制代码块样式)
+        run: |
+          # 创建自定义样式文件，解决背景色和换行问题
+          cat > custom_code.sty << 'EOF'
+          \usepackage{listings}
+          \usepackage{xcolor}
+          \usepackage{geometry}
+          
+          % 代码块基础样式
+          \lstset{
+            breaklines=true,                % 强制自动换行（核心）
+            breakatwhitespace=true,         % 在空格处换行，避免截断单词
+            frame=single,                   % 单边框（与1111.pdf一致）
+            backgroundcolor=\color{gray!10},% 浅灰色背景（避免黑色）
+            tabsize=4,                      % 4空格缩进
+            numbers=none,                   % 不显示行号
+            showstringspaces=false,         % 不显示字符串中的空格标记
+            basicstyle=\ttfamily\small,     % 等宽字体+小字号（减少溢出）
+            keywordstyle=\color{blue},      % 关键字蓝色
+            commentstyle=\color{gray!60},   % 注释浅灰色
+            stringstyle=\color{green!60},   % 字符串绿色
+            columns=flexible,               % 自适应列宽，优化换行
+          }
+          
+          % 中文支持优化
+          \usepackage{ctex}
+          EOF
+      
+      - name: Convert Markdown to PDF (最终修复版)
         run: |
           MD_FILES="${{ steps.find-md.outputs.found_md_files }}"
           echo "开始转换Markdown文件到PDF..."
@@ -51,19 +91,17 @@ jobs:
           for md_file in $MD_FILES; do
             [ -z "$md_file" ] && continue
             
-            # 处理中文路径和文件名（加引号避免空格截断）
             md_file_quoted="$md_file"
             dir_name=$(dirname "$md_file_quoted")
             base_name=$(basename "$md_file_quoted" .md)
             output_dir="pdf_output/$dir_name"
             output_file="$output_dir/$base_name.pdf"
             
-            # 创建输出目录（确保中文路径可创建）
             mkdir -p "$output_dir"
             
             echo "正在转换: $md_file_quoted"
             
-            # 复制资源文件（图片、附件）
+            # 复制资源文件
             if [ -d "$dir_name/picture" ]; then
               mkdir -p "$output_dir/picture"
               cp -r "$dir_name/picture/"* "$output_dir/picture/" 2>/dev/null || true
@@ -73,24 +111,24 @@ jobs:
               cp -r "$dir_name/resource/"* "$output_dir/resource/" 2>/dev/null || true
             fi
             
-            # 核心命令：修复语法错误，确保代码块样式
+            # 核心命令：引入自定义样式，确保代码块效果
             set +e
             pandoc "$md_file_quoted" \
               --resource-path="$dir_name:." \
               -o "$output_file" \
               --pdf-engine=xelatex \
-              -V mainfont="WenQuanYi Zen Hei" \
-              -V monofont="DejaVu Sans Mono" \
-              -V fontsize=10pt \
-              -V geometry:a4paper \
-              -V geometry:margin=0.8in \
+              -V mainfont="WenQuanYi Zen Hei" \  # 中文主字体
+              -V monofont="DejaVu Sans Mono" \   # 代码等宽字体（无缺失）
+              -V fontsize=10pt \                # 整体字体大小
+              -V geometry:a4paper \             # A4纸
+              -V geometry:margin=0.8in \        # 边距优化（横向空间充足）
               -V colorlinks=true \
               -V linkcolor=blue \
               -V urlcolor=blue \
               -V lang=zh-CN \
-              --highlight-style=zenburn \
-              -V listings=true \
-              -V listings-options="breaklines,frame=single,backgroundcolor=\color{gray!15},tabsize=4,numbers=none"
+              --include-in-header=custom_code.sty \  # 引入自定义样式（关键）
+              -f markdown \
+              --highlight-style=zenburn  # 高亮样式（兼容自定义颜色）
             pandoc_exit=$?
             set -e
             
