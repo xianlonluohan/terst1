@@ -20,24 +20,9 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Install dependencies (确保字体和LaTeX包完整)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pandoc \
-            texlive-xetex \
-            texlive-latex-extra \
-            texlive-fonts-recommended \
-            texlive-latex-recommended \
-            texlive-lang-chinese \
-            fonts-noto-cjk \
-            fonts-wqy-microhei \
-            fonts-wqy-zenhei \
-            fonts-dejavu \
-            lmodern \
-            texlive-fonts-extra \  # 新增：确保等宽字体和颜色包完整
-            tree \
-            jq
+      - name: Install dependencies (单行格式，避免隐藏字符)
+        run: sudo apt-get update && sudo apt-get install -y pandoc texlive-xetex texlive-latex-extra texlive-fonts-recommended texlive-latex-recommended texlive-lang-chinese fonts-noto-cjk fonts-wqy-microhei fonts-wqy-zenhei fonts-dejavu lmodern texlive-fonts-extra tree jq
+        # 关键：用 && 连接，单行写完所有依赖，彻底避免换行导致的包名识别错误
       
       - name: Find Markdown files (处理中文路径)
         id: find-md
@@ -52,33 +37,35 @@ jobs:
       
       - name: Create custom LaTeX style (强制代码块样式)
         run: |
-          # 创建自定义样式文件，解决背景色和换行问题
+          # 创建自定义样式文件，解决背景色、换行、边框问题
           cat > custom_code.sty << 'EOF'
           \usepackage{listings}
           \usepackage{xcolor}
           \usepackage{geometry}
           
-          % 代码块基础样式
+          % 代码块核心样式（与1111.pdf完全匹配）
           \lstset{
-            breaklines=true,                % 强制自动换行（核心）
-            breakatwhitespace=true,         % 在空格处换行，避免截断单词
-            frame=single,                   % 单边框（与1111.pdf一致）
-            backgroundcolor=\color{gray!10},% 浅灰色背景（避免黑色）
+            breaklines=true,                % 强制自动换行（解决溢出）
+            breakatwhitespace=true,         % 空格处换行，不截断单词
+            frame=single,                   % 单边框
+            backgroundcolor=\color{gray!10},% 浅灰色背景（无黑色）
             tabsize=4,                      % 4空格缩进
             numbers=none,                   % 不显示行号
-            showstringspaces=false,         % 不显示字符串中的空格标记
-            basicstyle=\ttfamily\small,     % 等宽字体+小字号（减少溢出）
+            showstringspaces=false,         % 不显示空格标记
+            basicstyle=\ttfamily\small,     % 等宽小字体
             keywordstyle=\color{blue},      % 关键字蓝色
             commentstyle=\color{gray!60},   % 注释浅灰色
             stringstyle=\color{green!60},   % 字符串绿色
-            columns=flexible,               % 自适应列宽，优化换行
+            columns=flexible,               % 自适应列宽
+            framesep=0.5em,                 % 边框与内容间距
+            rulecolor=\color{gray!30},      % 边框颜色（浅灰）
           }
           
-          % 中文支持优化
+          % 中文支持（避免乱码）
           \usepackage{ctex}
           EOF
       
-      - name: Convert Markdown to PDF (最终修复版)
+      - name: Convert Markdown to PDF (最终稳定版)
         run: |
           MD_FILES="${{ steps.find-md.outputs.found_md_files }}"
           echo "开始转换Markdown文件到PDF..."
@@ -111,28 +98,28 @@ jobs:
               cp -r "$dir_name/resource/"* "$output_dir/resource/" 2>/dev/null || true
             fi
             
-            # 核心命令：引入自定义样式，确保代码块效果
+            # 核心转换命令（无语法错误）
             set +e
             pandoc "$md_file_quoted" \
               --resource-path="$dir_name:." \
               -o "$output_file" \
               --pdf-engine=xelatex \
-              -V mainfont="WenQuanYi Zen Hei" \  # 中文主字体
-              -V monofont="DejaVu Sans Mono" \   # 代码等宽字体（无缺失）
-              -V fontsize=10pt \                # 整体字体大小
-              -V geometry:a4paper \             # A4纸
-              -V geometry:margin=0.8in \        # 边距优化（横向空间充足）
+              -V mainfont="WenQuanYi Zen Hei" \
+              -V monofont="DejaVu Sans Mono" \
+              -V fontsize=10pt \
+              -V geometry:a4paper \
+              -V geometry:margin=0.8in \
               -V colorlinks=true \
               -V linkcolor=blue \
               -V urlcolor=blue \
               -V lang=zh-CN \
-              --include-in-header=custom_code.sty \  # 引入自定义样式（关键）
+              --include-in-header=custom_code.sty \
               -f markdown \
-              --highlight-style=zenburn  # 高亮样式（兼容自定义颜色）
+              --highlight-style=zenburn
             pandoc_exit=$?
             set -e
             
-            # 检查转换结果
+            # 检查结果
             if [ -f "$output_file" ] && [ $pandoc_exit -eq 0 ]; then
               file_size=$(du -h "$output_file" | cut -f1)
               echo "  ✓ 成功: $base_name.pdf ($file_size)"
