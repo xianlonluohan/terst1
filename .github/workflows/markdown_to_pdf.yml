@@ -6,9 +6,8 @@ on:
   pull_request:
     branches: ["main", "master"]
   workflow_dispatch:  # 允许手动触发
-# 修正权限配置
 permissions:
-  contents: write  # 这个权限已经包含了创建release的权限
+  contents: write
   pages: write
   id-token: write
 jobs:
@@ -21,54 +20,27 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Install dependencies (修复格式错误)
+      - name: Install dependencies (修复包名和格式)
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            pandoc \
-            texlive-xetex \
-            texlive-latex-extra \
-            texlive-fonts-recommended \
-            texlive-latex-recommended \
-            texlive-lang-chinese \
-            fonts-noto-cjk \
-            fonts-wqy-microhei \
-            fonts-wqy-zenhei \
-            fonts-dejavu \
-            lmodern \
-            tree \
-            jq
-        # 关键修复：移除依赖列表中的多余空格和隐藏字符，确保每个包名正确
-        
-      - name: Find Markdown files
+          sudo apt-get install -y pandoc texlive-xetex texlive-latex-extra texlive-fonts-recommended texlive-latex-recommended texlive-lang-chinese fonts-noto-cjk fonts-wqy-microhei fonts-wqy-zenhei fonts-dejavu lmodern tree jq
+      
+      - name: Find Markdown files (处理中文路径)
         id: find-md
         run: |
-          # 查找所有md文件，排除node_modules等目录
-          MD_FILES=$(find . -name "*.md" -not -path "./.*" -not -path "*/node_modules/*" | sed 's/^\.\///')
-          
-          # 使用heredoc格式输出
-          {
-            echo "found_md_files<<EOF"
-            echo "$MD_FILES"
-            echo "EOF"
-          } >> $GITHUB_OUTPUT
-          
-          # 创建目录结构列表
-          DIRS=$(find . -type f -name "*.md" -not -path "./.*" -not -path "*/node_modules/*" -exec dirname {} \; | sort -u | sed 's/^\.\///')
-          {
-            echo "dirs<<EOF"
-            echo "$DIRS"
-            echo "EOF"
-          } >> $GITHUB_OUTPUT
+          # 查找所有md文件，处理中文路径，排除系统目录
+          MD_FILES=$(find . -name "*.md" -not -path "./.*" -not -path "*/node_modules/*" | sed 's/^\.\///' | sort)
+          # 输出到环境变量（保留换行）
+          echo "found_md_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$MD_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
       
       - name: Set up output directory
-        run: |
-          mkdir -p pdf_output
+        run: mkdir -p pdf_output
       
-      - name: Convert Markdown to PDF (强化代码块样式)
+      - name: Convert Markdown to PDF (核心修复，确保代码块样式)
         run: |
           MD_FILES="${{ steps.find-md.outputs.found_md_files }}"
-          
           echo "开始转换Markdown文件到PDF..."
           echo "找到的文件数量: $(echo "$MD_FILES" | wc -l)"
           
@@ -79,73 +51,56 @@ jobs:
           for md_file in $MD_FILES; do
             [ -z "$md_file" ] && continue
             
-            dir_name=$(dirname "$md_file")
-            base_name=$(basename "$md_file" .md)
+            # 处理中文路径和文件名（加引号避免空格截断）
+            md_file_quoted="$md_file"
+            dir_name=$(dirname "$md_file_quoted")
+            base_name=$(basename "$md_file_quoted" .md)
+            output_dir="pdf_output/$dir_name"
+            output_file="$output_dir/$base_name.pdf"
             
-            # 创建输出目录
-            mkdir -p "pdf_output/$dir_name"
+            # 创建输出目录（确保中文路径可创建）
+            mkdir -p "$output_dir"
             
-            echo "正在转换: $md_file"
+            echo "正在转换: $md_file_quoted"
             
-            # 获取Markdown文件所在目录
-            md_dir=$(dirname "$md_file")
-            
-            # 复制资源文件
+            # 复制资源文件（图片、附件）
             if [ -d "$dir_name/picture" ]; then
-              mkdir -p "pdf_output/$dir_name/picture"
-              find "$dir_name/picture" -type f -exec cp {} "pdf_output/$dir_name/picture/" 2>/dev/null \; || true
+              mkdir -p "$output_dir/picture"
+              cp -r "$dir_name/picture/"* "$output_dir/picture/" 2>/dev/null || true
             fi
-            
             if [ -d "$dir_name/resource" ]; then
-              mkdir -p "pdf_output/$dir_name/resource"
-              find "$dir_name/resource" -type f -exec cp {} "pdf_output/$dir_name/resource/" 2>/dev/null \; || true
+              mkdir -p "$output_dir/resource"
+              cp -r "$dir_name/resource/"* "$output_dir/resource/" 2>/dev/null || true
             fi
             
-            # 核心：Pandoc转换命令（修复格式+强化样式）
+            # 核心命令：修复语法错误，确保代码块样式
             set +e
-            pandoc "$md_file" \
-              -f markdown+listings \  # 强制启用listings包（代码块样式核心）
-              --resource-path="$md_dir:.:." \
-              -o "pdf_output/$dir_name/$base_name.pdf" \
+            pandoc "$md_file_quoted" \
+              --resource-path="$dir_name:." \
+              -o "$output_file" \
               --pdf-engine=xelatex \
-              # 主字体（支持中文，兼容Linux）
-              -V mainfont="Noto Serif CJK SC" \
-              # 代码块等宽字体（Linux预装，无缺失风险）
+              -V mainfont="WenQuanYi Zen Hei" \
               -V monofont="DejaVu Sans Mono" \
-              # 字体大小（9pt适配密集代码）
-              -V fontsize=9pt \
-              # 页面配置（A4纸+窄边距，最大化横向空间）
+              -V fontsize=10pt \
               -V geometry:a4paper \
-              -V geometry:margin=0.6in \
-              -V geometry:left=0.7in \
-              -V geometry:right=0.7in \
-              # 代码块样式（与VS Code 1111.pdf完全对齐）
-              -V listings-options=breaklines:true \  # 强制换行（解决溢出）
-              -V listings-options=frame:single \     # 单边框（代码框）
-              -V listings-options=backgroundcolor:\color{gray!15} \  # 浅灰背景
-              -V listings-options=tabsize:4 \        # 4空格缩进
-              -V listings-options=numbers:none \     # 隐藏行号
-              -V listings-options=showstringspaces:false \  # 不显示空格标记
-              -V listings-options=basicstyle:\ttfamily\small \  # 等宽小字体
-              # 代码高亮（VS风格，与1111.pdf一致）
-              --highlight-style=vs \
-              # 中文支持优化
-              -V lang=zh-CN \
-              -V CJKmainfont="Noto Serif CJK SC" \
-              # 链接样式
+              -V geometry:margin=0.8in \
               -V colorlinks=true \
               -V linkcolor=blue \
-              -V urlcolor=blue 2>&1
+              -V urlcolor=blue \
+              -V lang=zh-CN \
+              --highlight-style=zenburn \
+              -V listings=true \
+              -V listings-options="breaklines,frame=single,backgroundcolor=\color{gray!15},tabsize=4,numbers=none"
             pandoc_exit=$?
             set -e
             
-            # 检查是否生成PDF
-            if [ -f "pdf_output/$dir_name/$base_name.pdf" ]; then
-              file_size=$(du -h "pdf_output/$dir_name/$base_name.pdf" | cut -f1)
+            # 检查转换结果
+            if [ -f "$output_file" ] && [ $pandoc_exit -eq 0 ]; then
+              file_size=$(du -h "$output_file" | cut -f1)
               echo "  ✓ 成功: $base_name.pdf ($file_size)"
               converted_count=$((converted_count + 1))
             else
-              echo "  ✗ 失败: $md_file"
+              echo "  ✗ 失败: $md_file_quoted"
               failed_count=$((failed_count + 1))
             fi
           done
@@ -157,7 +112,6 @@ jobs:
           echo "失败: $failed_count 个文件"
           echo "================================"
           
-          # 如果所有文件都失败，则退出
           if [ $converted_count -eq 0 ] && [ $failed_count -gt 0 ]; then
             echo "错误: 没有成功转换任何文件"
             exit 1
@@ -165,16 +119,12 @@ jobs:
       
       - name: Create release documentation
         run: |
-          echo "创建发布文档..."
-          
-          # 获取 tag 名称（如果有）
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TAG_NAME="${GITHUB_REF#refs/tags/}"
           else
             TAG_NAME="latest"
           fi
           
-          # 创建 README
           echo "# PDF 文档集" > pdf_output/README.md
           echo "" >> pdf_output/README.md
           echo "## 生成信息" >> pdf_output/README.md
@@ -189,71 +139,23 @@ jobs:
           
           echo "## 文件列表" >> pdf_output/README.md
           echo "" >> pdf_output/README.md
-          
-          # 统计文件数量
           PDF_COUNT=$(find pdf_output -name "*.pdf" -type f | wc -l)
-          
-          # 按目录组织文件列表
-          current_dir=""
           find pdf_output -name "*.pdf" -type f | sort | while read pdf_file; do
             rel_path=${pdf_file#pdf_output/}
-            dir_name=$(dirname "$rel_path")
-            file_name=$(basename "$rel_path")
             file_size=$(du -h "$pdf_file" | cut -f1)
-            
-            # 如果是新的目录，添加标题
-            if [ "$current_dir" != "$dir_name" ]; then
-              current_dir="$dir_name"
-              if [ "$dir_name" != "." ]; then
-                echo "### $dir_name/" >> pdf_output/README.md
-                echo "" >> pdf_output/README.md
-              fi
-            fi
-            
-            echo "- [$file_name]($rel_path) ($file_size)" >> pdf_output/README.md
+            echo "- [$rel_path]($rel_path) ($file_size)" >> pdf_output/README.md
           done
-          
           echo "" >> pdf_output/README.md
           echo "**总计: $PDF_COUNT 个 PDF 文件**" >> pdf_output/README.md
-          
-          # 创建发布说明（只用于 tag 发布）
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "# PDF 文档发布 - $TAG_NAME" > pdf_output/RELEASE_NOTES.md
-            echo "" >> pdf_output/RELEASE_NOTES.md
-            echo "## 版本信息" >> pdf_output/RELEASE_NOTES.md
-            echo "- **发布日期**: $(date '+%Y-%m-%d %H:%M:%S')" >> pdf_output/RELEASE_NOTES.md
-            echo "- **版本**: $TAG_NAME" >> pdf_output/RELEASE_NOTES.md
-            echo "- **包含文件**: $PDF_COUNT 个 PDF 文档" >> pdf_output/RELEASE_NOTES.md
-            echo "- **生成提交**: ${{ github.sha }}" >> pdf_output/RELEASE_NOTES.md
-            echo "" >> pdf_output/RELEASE_NOTES.md
-            
-            echo "## 文件清单" >> pdf_output/RELEASE_NOTES.md
-            echo "" >> pdf_output/RELEASE_NOTES.md
-            echo "| 文件路径 | 大小 |" >> pdf_output/RELEASE_NOTES.md
-            echo "|----------|------|" >> pdf_output/RELEASE_NOTES.md
-            
-            find pdf_output -name "*.pdf" -type f | sort | while read pdf_file; do
-              rel_path=${pdf_file#pdf_output/}
-              file_size=$(du -h "$pdf_file" | cut -f1)
-              echo "| $rel_path | $file_size |" >> pdf_output/RELEASE_NOTES.md
-            done
-          fi
       
       - name: Create zip archive for release
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          echo "为 GitHub Releases 创建压缩包..."
-          
-          # 获取 tag 名称
           TAG_NAME="${GITHUB_REF#refs/tags/}"
-          
-          # 创建压缩包
           cd pdf_output
           zip -r "../pdf-documents-$TAG_NAME.zip" .
           cd ..
-          
           echo "压缩包已创建: pdf-documents-$TAG_NAME.zip"
-          ls -lh pdf-documents-*.zip
       
       - name: Upload PDF artifacts
         uses: actions/upload-artifact@v4
@@ -266,25 +168,11 @@ jobs:
       
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        id: create_release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
           name: "PDF Documents - ${{ github.ref_name }}"
-          body_path: pdf_output/RELEASE_NOTES.md
-          files: |
-            pdf-documents-${{ github.ref_name }}.zip
+          body_path: pdf_output/README.md
+          files: pdf-documents-${{ github.ref_name }}.zip
           draft: false
           prerelease: false
-          generate_release_notes: true
-      
-      - name: Verify release creation
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          echo "Release 创建完成!"
-          echo "访问: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
-          echo ""
-          echo "包含文件:"
-          echo "- pdf-documents-${{ github.ref_name }}.zip (完整文档包)"
-          echo ""
-          echo "您也可以从 Actions Artifacts 下载 PDF 文件。"
