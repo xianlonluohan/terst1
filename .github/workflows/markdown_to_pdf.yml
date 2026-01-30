@@ -34,6 +34,7 @@ jobs:
             fonts-noto-cjk \
             fonts-wqy-microhei \
             fonts-wqy-zenhei \
+            fonts-dejavu \  # 新增：安装DejaVu等宽字体（Linux兼容）
             lmodern \
             tree \
             jq
@@ -99,33 +100,32 @@ jobs:
               find "$dir_name/resource" -type f -exec cp {} "pdf_output/$dir_name/resource/" 2>/dev/null \; || true
             fi
             
-            # 使用pandoc转换PDF（优化代码块样式）
+            # 核心：Pandoc转换命令（强制启用listings，修复样式）
             set +e
             pandoc "$md_file" \
+              -f markdown+listings \  # 强制启用listings包解析代码块（关键修复）
               --resource-path="$md_dir:.:." \
               -o "pdf_output/$dir_name/$base_name.pdf" \
               --pdf-engine=xelatex \
-              # 主字体（保持原有配置，支持中文）
+              # 主字体（支持中文，保持原有）
               -V mainfont="Noto Serif CJK SC" \
-              # 代码块等宽字体（确保代码对齐，匹配VS Code默认）
-              -V monofont="Consolas" \
-              # 整体字体大小（10pt避免代码过大）
-              -V fontsize=10pt \
-              # 页面边距（1英寸，平衡可读性和横向空间）
-              -V geometry:margin=1in \
-              # 代码块自动换行（核心解决超出边框问题）
-              -V listings-options=breaklines \
-              # 代码块单边框（与1111.pdf一致）
-              -V listings-options=frame=single \
-              # 代码块浅灰色背景（区分正文和代码）
-              -V listings-options=backgroundcolor=\color{gray!10} \
-              # 代码块内缩进（4空格，优化可读性）
-              -V listings-options=tabsize=4 \
-              # 代码块边框与内容间距（0.5em，视觉更舒适）
-              -V listings-options=framesep=0.5em \
-              # 代码高亮样式（tango贴近VS Code默认）
-              --highlight-style=tango \
-              # 链接样式（保持原有配置）
+              # 代码块等宽字体（Linux兼容，替换Consolas）
+              -V monofont="DejaVu Sans Mono" \
+              # 代码字体大小（进一步缩小，适配代码密集场景）
+              -V fontsize=9pt \
+              # 页面边距（缩小左右边距至0.7in，增加横向空间）
+              -V geometry:margin=0.7in \
+              -V geometry:a4paper \  # 指定A4纸（统一尺寸）
+              # 代码块样式（核心配置，与VS Code一致）
+              -V listings-options=breaklines \  # 强制换行（解决溢出）
+              -V listings-options=frame=single \  # 单边框（代码框）
+              -V listings-options=backgroundcolor=\color{gray!15} \  # 浅灰色背景
+              -V listings-options=tabsize=4 \  # 缩进4空格
+              -V listings-options=numbers=none \  # 不显示行号（与VS Code默认一致）
+              -V listings-options=showstringspaces=false \  # 不显示字符串中的空格标记
+              # 代码高亮样式（vs风格，更贴近VS Code）
+              --highlight-style=vs \
+              # 链接样式
               -V colorlinks=true \
               -V linkcolor=blue \
               -V urlcolor=blue \
